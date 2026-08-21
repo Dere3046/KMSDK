@@ -1,9 +1,9 @@
 # <name> <git url> <rev> <desc>
-KallRecon git@github.com:Dere3046/KallRecon.git 8392512 kernel symbol recovery
-Type_info git@github.com:Dere3046/Type_info.git c4dc0f4 runtime struct layout via BTF
-hidemod git@github.com:Dere3046/hidemod.git fc66020 hide module from module_list
-KernCall git@github.com:Dere3046/KernCall.git 09be3a8 syscall channel over ni_syscall
-rwMemory git@github.com:Dere3046/rwMemory.git 3210a7a cross process memory rw
-HooKern git@github.com:Dere3046/HooKern.git 37b245b kernel hook toolbox
-MountHide git@github.com:Dere3046/MountHide.git d037be6 mount output hiding
-BlockDeviceHook git@github.com:Dere3046/BlockDeviceHook.git 8bccbdd block device protection
+KallRecon https://github.com/Dere3046/KallRecon.git 8392512 kernel symbol recovery
+Type_info https://github.com/Dere3046/Type_info.git c4dc0f4 runtime struct layout via BTF
+hidemod https://github.com/Dere3046/hidemod.git fc66020 hide module from module_list
+KernCall https://github.com/Dere3046/KernCall.git 09be3a8 syscall channel over ni_syscall
+rwMemory https://github.com/Dere3046/rwMemory.git 3210a7a cross process memory rw
+HooKern https://github.com/Dere3046/HooKern.git 37b245b kernel hook toolbox
+MountHide https://github.com/Dere3046/MountHide.git d037be6 mount output hiding
+BlockDeviceHook https://github.com/Dere3046/BlockDeviceHook.git 8bccbdd block device protection
