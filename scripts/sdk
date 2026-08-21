@@ -1,0 +1,95 @@
+#!/bin/sh
+# KMSDK package manager
+# usage: sdk <add|remove|update|ls|audit|install>
+set -e
+
+SDKDIR=$(cd "$(dirname "$0")/.." && pwd)
+REGLIST=$SDKDIR/libs.lst
+
+cmd=$1
+shift || true
+
+case $cmd in
+ls)
+	awk '!/^#/ {d=$4; for(i=5;i<=NF;i++) d=d" "$i; printf "%-14s %s\n", $1, d}' "$REGLIST"
+	;;
+add)
+	name=$1
+	[ -n "$name" ] || { echo "usage: sdk add <name>"; exit 1; }
+	rev=$(awk -v n="$name" '$1==n {print $3; exit}' "$REGLIST")
+	[ -z "$rev" ] && { echo "unknown lib: $name"; exit 1; }
+	if grep -q "^$name " deps.lst; then
+		echo "already in deps.lst"
+	else
+		echo "$name $rev" >> deps.lst
+		echo "added $name $rev"
+	fi
+	;;
+remove)
+	name=$1
+	[ -n "$name" ] || { echo "usage: sdk remove <name>"; exit 1; }
+	if grep -q "^$name " deps.lst; then
+		sed -i "/^$name /d" deps.lst
+		echo "removed $name from deps.lst"
+	else
+		echo "not in deps.lst"
+	fi
+	if [ -d "deps/$name" ]; then
+		rm -rf "deps/$name"
+		echo "removed deps/$name"
+	fi
+	;;
+update)
+	name=$1
+	[ -n "$name" ] || { echo "usage: sdk update <name>"; exit 1; }
+	rev=$(awk -v n="$name" '$1==n {print $3; exit}' "$REGLIST")
+	[ -z "$rev" ] && { echo "unknown lib: $name"; exit 1; }
+	if grep -q "^$name " deps.lst; then
+		sed -i "s/^$name .*/$name $rev/" deps.lst
+		echo "updated $name -> $rev"
+	else
+		echo "not in deps.lst, use sdk add"
+	fi
+	;;
+audit)
+	find_owner() {
+		h=$1
+		for f in deps/*/deps.mk; do
+			[ -f "$f" ] || continue
+			id=$(sed -n 's/^DEPS_LIB_NAME := \(.*\)$/\1/p' "$f")
+			[ -z "$id" ] && continue
+			dir=${f%deps.mk}
+			for d in $(sed -n 's/^DEPS_LIB_INCS := \(.*\)$/\1/p' "$f"); do
+				if [ -f "$dir/$d/$h" ]; then
+					echo "$id"
+					return 0
+				fi
+			done
+		done
+		return 1
+	}
+	if ! ls deps/*/deps.mk >/dev/null 2>&1; then
+		echo "run sdk install first, no vendored deps yet"
+		exit 1
+	fi
+	refs=$(grep -rhoE '#include "[^"]+\.h"' src lib 2>/dev/null \
+		| sed 's/#include "//;s/"//' | sort -u)
+	missing=0
+	for h in $refs; do
+		lib=$(find_owner "$h")
+		[ -z "$lib" ] && continue
+		if ! grep -q "^$lib " deps.lst; then
+			echo "referenced but missing: $lib (sdk add $lib)"
+			missing=1
+		fi
+	done
+	[ "$missing" = 0 ] && echo "no missing deps"
+	;;
+install)
+	exec "$SDKDIR/scripts/deploy-deps.sh" "$(pwd)"
+	;;
+*)
+	echo "usage: sdk <add|remove|update|ls|audit|install>"
+	exit 1
+	;;
+esac

@@ -1,0 +1,9 @@
+# <name> <git url> <rev> <desc>
+KallRecon git@github.com:Dere3046/KallRecon.git 63163fd477897fad97639f5ebca77af655499add kernel symbol recovery
+Type_info git@github.com:Dere3046/Type_info.git 68c7b2ebb24c53c59cb994091af2a91075a29936 runtime struct layout via BTF
+hidemod git@github.com:Dere3046/hidemod.git e7aba01aec6b4b88a64b2eb45e5573a27e80ceb1 hide module from module_list
+KernCall git@github.com:Dere3046/KernCall.git 3a2275be332aaa35085e856e97c411aa1e739470 syscall channel over ni_syscall
+rwMemory git@github.com:Dere3046/rwMemory.git d8ea6aec5c3f35ea8c54af3a4e2d8d59be989c30 cross process memory rw
+HooKern git@github.com:Dere3046/HooKern.git 8ba8611db76961306b5db870d11d2820403b2fb4 kernel hook toolbox
+MountHide git@github.com:Dere3046/MountHide.git 31032d3cf2e534e7509895e2c4e64bdadcdddec9 mount output hiding
+BlockDeviceHook git@github.com:Dere3046/BlockDeviceHook.git 023039084599d4877458f28e858ec823b11ab8b2 block device protection
