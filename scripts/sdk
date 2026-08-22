@@ -9,14 +9,27 @@ REGLIST=$SDKDIR/libs.lst
 cmd=$1
 shift || true
 
+reg_rev() {
+	awk -v n="$1" '$1==n {print $3; exit}' "$REGLIST"
+}
+
+reg_url() {
+	awk -v n="$1" '$1==n {print $2; exit}' "$REGLIST"
+}
+
+head_rev() {
+	git ls-remote "$1" HEAD 2>/dev/null | awk '{print $1}'
+}
+
 case $cmd in
 ls)
 	awk '!/^#/ {d=$4; for(i=5;i<=NF;i++) d=d" "$i; printf "%-14s %s\n", $1, d}' "$REGLIST"
 	;;
 add)
 	name=$1
-	[ -n "$name" ] || { echo "usage: sdk add <name>"; exit 1; }
-	rev=$(awk -v n="$name" '$1==n {print $3; exit}' "$REGLIST")
+	rev=$2
+	[ -n "$name" ] || { echo "usage: sdk add <name> [rev]"; exit 1; }
+	[ -z "$rev" ] && rev=$(reg_rev "$name")
 	[ -z "$rev" ] && { echo "unknown lib: $name"; exit 1; }
 	if grep -q "^$name " deps.lst; then
 		echo "already in deps.lst"
@@ -41,8 +54,16 @@ remove)
 	;;
 update)
 	name=$1
-	[ -n "$name" ] || { echo "usage: sdk update <name>"; exit 1; }
-	rev=$(awk -v n="$name" '$1==n {print $3; exit}' "$REGLIST")
+	rev=$2
+	[ -n "$name" ] || { echo "usage: sdk update <name> [rev|latest]"; exit 1; }
+	if [ "$rev" = "latest" ]; then
+		url=$(reg_url "$name")
+		[ -z "$url" ] && { echo "unknown lib: $name"; exit 1; }
+		rev=$(head_rev "$url")
+		[ -z "$rev" ] && { echo "cannot resolve latest for $name"; exit 1; }
+	elif [ -z "$rev" ]; then
+		rev=$(reg_rev "$name")
+	fi
 	[ -z "$rev" ] && { echo "unknown lib: $name"; exit 1; }
 	if grep -q "^$name " deps.lst; then
 		sed -i "s/^$name .*/$name $rev/" deps.lst
@@ -85,11 +106,30 @@ audit)
 	done
 	[ "$missing" = 0 ] && echo "no missing deps"
 	;;
+latest)
+	name=$1
+	[ -n "$name" ] || { echo "usage: sdk latest <name>"; exit 1; }
+	url=$(reg_url "$name")
+	[ -z "$url" ] && { echo "unknown lib: $name"; exit 1; }
+	rev=$(head_rev "$url")
+	[ -z "$rev" ] && { echo "cannot resolve latest for $name"; exit 1; }
+	echo "$rev"
+	;;
+self)
+	url=$(git -C "$SDKDIR" remote get-url origin 2>/dev/null)
+	[ -z "$url" ] && { echo "no origin for the sdk repo"; exit 1; }
+	rev=$(head_rev "$url")
+	[ -z "$rev" ] && { echo "cannot resolve sdk latest"; exit 1; }
+	echo "$rev" > .sdk-version
+	git -C "$SDKDIR" fetch origin 2>/dev/null || true
+	git -C "$SDKDIR" checkout "$rev" >/dev/null 2>&1 || true
+	echo "sdk pinned to $rev"
+	;;
 install)
 	exec "$SDKDIR/scripts/deploy-deps.sh" "$(pwd)"
 	;;
 *)
-	echo "usage: sdk <add|remove|update|ls|audit|install>"
+	echo "usage: sdk <add|remove|update|latest|self|ls|audit|install>"
 	exit 1
 	;;
 esac
