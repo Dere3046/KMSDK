@@ -2,7 +2,8 @@
 # deploy deps declared in a module deps.lst
 # usage: deploy-deps.sh <module dir>
 # deps.lst line format: <name> <rev>, url comes from the registry
-# closure resolved from each vendored deps.mk, same name only once
+# builtin entries have url "builtin", they live in the SDK itself
+# closure resolved from each vendored and builtin deps.mk, dedup by dir
 set -e
 
 SDKDIR=$(cd "$(dirname "$0")/.." && pwd)
@@ -21,14 +22,18 @@ deploy_one() {
 	[ -z "$line" ] && { echo "unknown lib in registry: $name"; exit 1; }
 	url=${line% *}
 	reg_rev=${line#* }
-	[ -z "$rev" ] && rev=$reg_rev
 
+	if [ "$url" = "builtin" ]; then
+		[ -d "$SDKDIR/builtin/$name" ] || { echo "builtin lib missing: $name"; exit 1; }
+		echo "builtin $name"
+		return 0
+	fi
+
+	[ -z "$rev" ] && rev=$reg_rev
 	echo "fetch $name @ $rev"
 	git clone "$url" "$MODDIR/deps/$name"
 	git -C "$MODDIR/deps/$name" checkout "$rev"
 
-	# the lib id in its deps.mk is the authority, the declared name
-	# must match it or the expander would resolve the wrong contract
 	meta="$MODDIR/deps/$name/deps.mk"
 	[ -f "$meta" ] || { echo "lib $name has no deps.mk, push it first"; exit 1; }
 	libid=$(sed -n 's/^DEPS_LIB_NAME := \(.*\)$/\1/p' "$meta")
@@ -44,9 +49,10 @@ done < "$MODDIR/deps.lst"
 changed=1
 while [ "$changed" = 1 ]; do
 	changed=0
-	for f in "$MODDIR"/deps/*/deps.mk; do
+	for f in "$MODDIR"/deps/*/deps.mk "$MODDIR"/.sdk/builtin/*/deps.mk; do
 		[ -f "$f" ] || continue
 		lib=${f#*deps/}
+		lib=${lib#*builtin/}
 		lib=${lib%/deps.mk}
 		for dep in $(sed -n 's/^DEPS_LIB_DEPS := \(.*\)$/\1/p' "$f"); do
 			if [ ! -d "$MODDIR/deps/$dep" ]; then
