@@ -7,7 +7,7 @@ rwMemory https://github.com/Dere3046/rwMemory.git 3210a7a cross process memory r
 HooKern https://github.com/Dere3046/HooKern.git 37b245b kernel hook toolbox
 MountHide https://github.com/Dere3046/MountHide.git d037be6 mount output hiding
 BlockDeviceHook https://github.com/Dere3046/BlockDeviceHook.git 8bccbdd block device protection
-rust_support https://github.com/Dere3046/RaanaSDK.git aa5515a28c540f7801e8b618c1bafe3b31fd3bea rust runtime provider
+rust_support https://github.com/Dere3046/RaanaSDK.git 02b388693bd60e8eaa5b5b5bf22e27d7199203b3 rust runtime provider
 atmm builtin - AT hardware address translation
 credroot builtin - cred replace privilege escalation
 hwbreakpoint builtin - hardware breakpoint debug
