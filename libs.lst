@@ -1,5 +1,5 @@
 # <name> <git url> <rev> <desc>
-KallRecon https://github.com/Dere3046/KallRecon.git 8392512 kernel symbol recovery
+KallRecon https://github.com/Dere3046/KallRecon.git 0c1f263 kernel symbol recovery
 Type_info https://github.com/Dere3046/Type_info.git 14177ae runtime struct layout via BTF
 hidemod https://github.com/Dere3046/hidemod.git fc66020 hide module from module_list
 KernCall https://github.com/Dere3046/KernCall.git 09be3a8 syscall channel over ni_syscall
