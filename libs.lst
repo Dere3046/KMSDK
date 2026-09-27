@@ -4,7 +4,7 @@ Type_info https://github.com/Dere3046/Type_info.git 14177ae runtime struct layou
 hidemod https://github.com/Dere3046/hidemod.git fc66020 hide module from module_list
 KernCall https://github.com/Dere3046/KernCall.git 09be3a8 syscall channel over ni_syscall
 rwMemory https://github.com/Dere3046/rwMemory.git 3210a7a cross process memory rw
-HooKern https://github.com/Dere3046/HooKern.git d16e9dd kernel hook toolbox
+HooKern https://github.com/Dere3046/HooKern.git  kernel hook toolbox
 MountHide https://github.com/Dere3046/MountHide.git d037be6 mount output hiding
 BlockDeviceHook https://github.com/Dere3046/BlockDeviceHook.git 8bccbdd block device protection
 rust_support https://github.com/Dere3046/RaanaSDK.git dc55b5e7b25df374a8d446a5f9e4c73d3e818a38 rust runtime provider
