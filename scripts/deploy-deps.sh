@@ -3,7 +3,8 @@
 # usage: deploy-deps.sh <module dir>
 # deps.lst line format: <name> <rev>, url comes from the registry
 # builtin entries have url "builtin", they live in the SDK itself
-# closure resolved from each vendored and builtin deps.mk, dedup by dir
+# closure walked from the libs deps.lst declares plus their recursive
+# DEPS_LIB_DEPS, an unused builtin never pulls its deps in, dedup by name
 set -e
 
 SDKDIR=$(cd "$(dirname "$0")/.." && pwd)
@@ -40,27 +41,53 @@ deploy_one() {
 	[ "$libid" = "$name" ] || { echo "id mismatch: declared $name vs $libid"; exit 1; }
 }
 
+enqueue() {
+	case " $seen " in
+	*" $1 "*) return 0 ;;
+	esac
+
+	seen="$seen $1"
+	queue="$queue $1"
+	return 0
+}
+
+walk_one() {
+	name=$1
+	meta=
+
+	if [ -f "$MODDIR/deps/$name/deps.mk" ]; then
+		meta=$MODDIR/deps/$name/deps.mk
+	elif [ -f "$SDKDIR/builtin/$name/deps.mk" ]; then
+		meta=$SDKDIR/builtin/$name/deps.mk
+	else
+		return 0
+	fi
+
+	for dep in $(sed -n 's/^DEPS_LIB_DEPS := \(.*\)$/\1/p' "$meta"); do
+		deploy_one "$dep" ""
+		enqueue "$dep"
+	done
+
+	return 0
+}
+
+queue=
+seen=
+
 while read -r name rev; do
 	[ -z "$name" ] && continue
 	case $name in \#*) continue ;; esac
 	deploy_one "$name" "$rev"
+	enqueue "$name"
 done < "$MODDIR/deps.lst"
 
-changed=1
-while [ "$changed" = 1 ]; do
-	changed=0
-	for f in "$MODDIR"/deps/*/deps.mk "$MODDIR"/.sdk/builtin/*/deps.mk; do
-		[ -f "$f" ] || continue
-		lib=${f#*deps/}
-		lib=${lib#*builtin/}
-		lib=${lib%/deps.mk}
-		for dep in $(sed -n 's/^DEPS_LIB_DEPS := \(.*\)$/\1/p' "$f"); do
-			if [ ! -d "$MODDIR/deps/$dep" ]; then
-				deploy_one "$dep" ""
-				changed=1
-			fi
-		done
-	done
+while [ -n "$queue" ]; do
+	name=${queue%% *}
+	case $queue in
+	*" "*) queue=${queue#* } ;;
+	*) queue= ;;
+	esac
+	walk_one "$name"
 done
 
 echo "deps ok"
