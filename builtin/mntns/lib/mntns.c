@@ -28,6 +28,7 @@
 #include "mntns.h"
 
 static long (*mn_setns)(const struct pt_regs *regs);
+static long (*mn_sys_close)(const struct pt_regs *regs);
 static struct proc_ns_operations *mn_mntns_ops;
 static long (*mn_ns_get_path)(struct path *path,
 			      struct task_struct *task,
@@ -40,7 +41,6 @@ static struct file *(*mn_dentry_open)(const struct path *path, int flags,
 				      const struct cred *cred);
 static void (*mn_path_get)(struct path *path);
 static void (*mn_set_fs_pwd)(struct fs_struct *fs, const struct path *pwd);
-static int (*mn_filp_close)(struct file *file, fl_owner_t owner);
 
 static __nocfi long mn_call_setns(int fd, int flags)
 {
@@ -49,6 +49,18 @@ static __nocfi long mn_call_setns(int fd, int flags)
 	fake.regs[0] = fd;
 	fake.regs[1] = flags;
 	return mn_setns(&fake);
+}
+
+/*
+ * only the close syscall removes the fd table slot, filp_close just drops a
+ * reference and would leave an entry that points at a file of count zero
+ */
+static __nocfi long mn_call_close(int fd)
+{
+	struct pt_regs fake = {0};
+
+	fake.regs[0] = (unsigned long)fd;
+	return mn_sys_close(&fake);
 }
 
 static __nocfi long mn_call_ns_get_path(struct path *path,
@@ -88,11 +100,6 @@ static __nocfi void mn_call_set_fs_pwd(struct fs_struct *fs,
 	mn_set_fs_pwd(fs, pwd);
 }
 
-static __nocfi int mn_call_filp_close(struct file *file)
-{
-	return mn_filp_close(file, NULL);
-}
-
 int mntns_init(void)
 {
 	unsigned long addr;
@@ -103,6 +110,13 @@ int mntns_init(void)
 		return -ENODATA;
 	}
 	mn_setns = (long (*)(const struct pt_regs *))addr;
+
+	addr = hk_resolve("__arm64_sys_close");
+	if (!addr) {
+		pr_info("[mntns] no __arm64_sys_close\n");
+		return -ENODATA;
+	}
+	mn_sys_close = (long (*)(const struct pt_regs *))addr;
 
 	addr = hk_resolve("mntns_operations");
 	if (!addr) {
@@ -156,22 +170,20 @@ int mntns_init(void)
 	}
 	mn_set_fs_pwd = (void (*)(struct fs_struct *, const struct path *))addr;
 
-	addr = hk_resolve("filp_close");
-	if (!addr) {
-		pr_info("[mntns] no filp_close\n");
-		return -ENODATA;
-	}
-	mn_filp_close = (int (*)(struct file *, fl_owner_t))addr;
 	return 0;
 }
 
 void mntns_exit(void)
 {
 	mn_setns = NULL;
+	mn_sys_close = NULL;
 	mn_mntns_ops = NULL;
 	mn_ns_get_path = NULL;
 	mn_ksys_unshare = NULL;
 	mn_path_mount = NULL;
+	mn_dentry_open = NULL;
+	mn_path_get = NULL;
+	mn_set_fs_pwd = NULL;
 }
 
 static struct task_struct *mn_find_init(void)
@@ -197,12 +209,13 @@ int mntns_enter_init(void)
 	struct file *ns_file;
 	struct path saved_pwd;
 	char *buf;
-	char *pwd;
+	char *pwd = NULL;
 	int fd;
 	long ret;
 	int err;
 
-	if (!mn_mntns_ops || !mn_ns_get_path || !mn_setns)
+	if (!mn_mntns_ops || !mn_ns_get_path || !mn_setns || !mn_sys_close ||
+	    !mn_dentry_open || !mn_path_get || !mn_set_fs_pwd)
 		return -ENODATA;
 
 	buf = kmalloc(PATH_MAX, GFP_KERNEL);
@@ -243,18 +256,7 @@ no_pwd:
 	}
 	fd_install(fd, ns_file);
 	ret = mn_call_setns(fd, CLONE_NEWNS);
-	{
-		struct fd f = fdget(fd);
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
-		if (fd_file(f))
-			mn_call_filp_close(fd_file(f));
-#else
-		if (f.file)
-			mn_call_filp_close(f.file);
-#endif
-		fdput(f);
-	}
+	mn_call_close(fd);
 
 	if (!ret && pwd) {
 		struct path new_pwd;

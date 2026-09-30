@@ -17,6 +17,8 @@
 
 #include "atmm.h"
 
+#define ATMM_PAR_FST_MASK 0x3f
+
 static int atmm_safe_read(void *dst, const void *src, size_t sz)
 {
 	return copy_from_kernel_nofault(dst, src, sz);
@@ -74,7 +76,44 @@ static int atmm_soft_walk(struct mm_struct *mm, unsigned long va,
 	return 0;
 }
 
-int atmm_translate(pid_t pid, unsigned long va, unsigned long *pa)
+/*
+ * FST shares the ESR_ELx_FSC encoding, the level in bits [1:0] is
+ * folded into the fault type
+ */
+static enum atmm_fault atmm_decode_fst(u32 fst)
+{
+	switch (fst) {
+	case 0x00 ... 0x03:
+	case 0x25:
+	case 0x29:
+		return ATMM_FAULT_ADDR_SIZE;
+	case 0x04 ... 0x07:
+	case 0x2b:
+	case 0x2c:
+		return ATMM_FAULT_TRANSLATION;
+	case 0x08 ... 0x0b:
+		return ATMM_FAULT_ACCESS_FLAG;
+	case 0x0c ... 0x0f:
+		return ATMM_FAULT_PERMISSION;
+	case 0x10:
+	case 0x11:
+	case 0x13 ... 0x17:
+		return ATMM_FAULT_SYNC_EXTERNAL;
+	case 0x18:
+	case 0x1b ... 0x1f:
+		return ATMM_FAULT_SYNC_PARITY;
+	case 0x21:
+		return ATMM_FAULT_ALIGNMENT;
+	case 0x30:
+		return ATMM_FAULT_TLB_CONFLICT;
+	case 0x31:
+		return ATMM_FAULT_ATOMIC_UNSUPPORTED;
+	}
+	return ATMM_FAULT_UNKNOWN;
+}
+
+int atmm_translate_fault(pid_t pid, unsigned long va, unsigned long *pa,
+			 enum atmm_fault *fault)
 {
 	struct pid *pid_struct;
 	struct task_struct *task;
@@ -87,6 +126,8 @@ int atmm_translate(pid_t pid, unsigned long va, unsigned long *pa)
 
 	if (!pa)
 		return -EINVAL;
+	if (fault)
+		*fault = ATMM_FAULT_NONE;
 
 	pid_struct = find_get_pid(pid);
 	if (!pid_struct)
@@ -122,6 +163,8 @@ int atmm_translate(pid_t pid, unsigned long va, unsigned long *pa)
 	preempt_enable();
 
 	if (par & 1) {
+		if (fault)
+			*fault = atmm_decode_fst((par >> 1) & ATMM_PAR_FST_MASK);
 		ret = atmm_soft_walk(mm, va, &out);
 		mmput(mm);
 		if (ret)
@@ -133,4 +176,9 @@ int atmm_translate(pid_t pid, unsigned long va, unsigned long *pa)
 
 	*pa = out;
 	return 0;
+}
+
+int atmm_translate(pid_t pid, unsigned long va, unsigned long *pa)
+{
+	return atmm_translate_fault(pid, va, pa, NULL);
 }
