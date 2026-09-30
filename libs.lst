@@ -3,7 +3,7 @@ KallRecon https://github.com/Dere3046/KallRecon.git 653385b kernel symbol recove
 Type_info https://github.com/Dere3046/Type_info.git 8b1d48e runtime struct layout via BTF
 hidemod https://github.com/Dere3046/hidemod.git 5c9b464 hide module from module_list
 KernCall https://github.com/Dere3046/KernCall.git bb93ee8 syscall channel over ni_syscall
-rwMemory https://github.com/Dere3046/rwMemory.git d83385b cross process memory rw
+rwMemory https://github.com/Dere3046/rwMemory.git f8e5cc9 cross process memory rw
 HooKern https://github.com/Dere3046/HooKern.git 0a9a1af kernel hook toolbox
 MountHide https://github.com/Dere3046/MountHide.git 925d617 mount output hiding
 BlockDeviceHook https://github.com/Dere3046/BlockDeviceHook.git 694bac5 block device protection
