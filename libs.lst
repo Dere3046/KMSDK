@@ -2,11 +2,11 @@
 KallRecon https://github.com/Dere3046/KallRecon.git b258fb670f3f8878b18029167a2c1a15a71d51ad kernel symbol recovery
 Type_info https://github.com/Dere3046/Type_info.git e329774218dd6f9b6ed975f1a0ad1a59f7c0ba11 runtime struct layout via BTF
 hidemod https://github.com/Dere3046/hidemod.git 5c9b464 hide module from module_list
-KernCall https://github.com/Dere3046/KernCall.git 48bc870 syscall channel over ni_syscall
-rwMemory https://github.com/Dere3046/rwMemory.git 2ba924d cross process memory rw
-HooKern https://github.com/Dere3046/HooKern.git a599ebf kernel hook toolbox
-MountHide https://github.com/Dere3046/MountHide.git 805adf8 mount output hiding
-BlockDeviceHook https://github.com/Dere3046/BlockDeviceHook.git 4135905 block device protection
+KernCall https://github.com/Dere3046/KernCall.git f10dcce syscall channel over ni_syscall
+rwMemory https://github.com/Dere3046/rwMemory.git a3ac14f cross process memory rw
+HooKern https://github.com/Dere3046/HooKern.git cbf7769 kernel hook toolbox
+MountHide https://github.com/Dere3046/MountHide.git 9625140 mount output hiding
+BlockDeviceHook https://github.com/Dere3046/BlockDeviceHook.git 5fa004b block device protection
 rust_support https://github.com/Dere3046/RaanaSDK.git 392ae29d3987b2c10eb652ff5edd7ee0105f02e2 rust runtime provider
 atmm builtin - AT hardware address translation
 credroot builtin - cred replace privilege escalation
