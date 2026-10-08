@@ -1,13 +1,13 @@
 # <name> <git url> <rev> <desc>
 KallRecon https://github.com/Dere3046/KallRecon.git b258fb670f3f8878b18029167a2c1a15a71d51ad kernel symbol recovery
-Type_info https://github.com/Dere3046/Type_info.git 0b56326 runtime struct layout via BTF
-hidemod https://github.com/Dere3046/hidemod.git 5df97a8 hide module from module_list
-KernCall https://github.com/Dere3046/KernCall.git acfc8e3 syscall channel over ni_syscall
-rwMemory https://github.com/Dere3046/rwMemory.git 68e937a cross process memory rw
-HooKern https://github.com/Dere3046/HooKern.git ca8de2a kernel hook toolbox
-MountHide https://github.com/Dere3046/MountHide.git 7d4f905 mount output hiding
-BlockDeviceHook https://github.com/Dere3046/BlockDeviceHook.git a80a6c1 block device protection
-rust_support https://github.com/Dere3046/RaanaSDK.git 42c7028 rust runtime provider
+Type_info https://github.com/Dere3046/Type_info.git fc59de2 runtime struct layout via BTF
+hidemod https://github.com/Dere3046/hidemod.git 3ee8ebb hide module from module_list
+KernCall https://github.com/Dere3046/KernCall.git d370b46 syscall channel over ni_syscall
+rwMemory https://github.com/Dere3046/rwMemory.git 68bd7b8 cross process memory rw
+HooKern https://github.com/Dere3046/HooKern.git 2c85ca2 kernel hook toolbox
+MountHide https://github.com/Dere3046/MountHide.git 0d80451 mount output hiding
+BlockDeviceHook https://github.com/Dere3046/BlockDeviceHook.git 04db372 block device protection
+rust_support https://github.com/Dere3046/RaanaSDK.git a9b2825 rust runtime provider
 atmm builtin - AT hardware address translation
 credroot builtin - cred replace privilege escalation
 hwbreakpoint builtin - hardware breakpoint debug
