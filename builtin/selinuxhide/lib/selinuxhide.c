@@ -137,6 +137,10 @@ static bool slh_answer_ready(void)
 }
 
 /* hidden readers skip the avc check, should_hide decides who gets an answer */
+static bool slh_perm_ok(u32 tsid, u32 bit);
+static u32 slh_perm_check_context;
+static u32 slh_perm_compute_av;
+
 static ssize_t __nocfi slh_write_context(struct file *file, char *buf,
 					 size_t size)
 {
@@ -153,9 +157,17 @@ static ssize_t __nocfi slh_write_context(struct file *file, char *buf,
 
 	if (slh_direct) {
 		ret = sepolicy_policy_to_sid(slh_alt, buf, size, &sid);
-		if (!ret)
-			ret = sepolicy_policy_sid_to_context(slh_alt, sid,
-							     &canon, &len);
+		if (ret)
+			return ret;
+		/*
+		 * the kernel's own handler checks this permission against the context
+		 * being written, and a hidden reader does not get to skip it. nothing is
+		 * allocated yet, so the refusal returns here
+		 */
+		if (slh_perm_check_context &&
+		    !slh_perm_ok(sid, slh_perm_check_context))
+			return -EACCES;
+		ret = sepolicy_policy_sid_to_context(slh_alt, sid, &canon, &len);
 	} else {
 		unsigned long old;
 
@@ -227,8 +239,19 @@ static ssize_t __nocfi slh_write_access(struct file *file, char *buf,
 		if (!ret)
 			ret = sepolicy_policy_to_sid(slh_alt, tcon, 0, &tsid);
 		if (!ret)
+		{
+			/*
+			 * the kernel's own handler asks for compute_av on the source context before
+			 * it answers, and a hidden reader does not get to skip that check either
+			 */
+			if (slh_perm_compute_av &&
+			    !slh_perm_ok(ssid, slh_perm_compute_av)) {
+				ret = -EACCES;
+				goto out;
+			}
 			ret = sepolicy_policy_av(slh_alt, ssid, tsid, tclass,
 						 &avd);
+		}
 	} else {
 		unsigned long old;
 
@@ -265,8 +288,12 @@ static ssize_t __nocfi slh_write_access(struct file *file, char *buf,
 	if (ret)
 		goto out;
 
+	/*
+	 * the reply carries the policy generation in its fifth field, and a detector
+	 * reads it to tell whether another policy was ever loaded. stock reads one
+	 */
 	ret = scnprintf(buf, PAGE_SIZE, "%x %x %x %x %u %x", avd.allowed,
-			0xffffffff, avd.auditallow, avd.auditdeny, avd.seqno,
+			0xffffffff, avd.auditallow, avd.auditdeny, 1u,
 			avd.flags);
 out:
 	kfree(tcon);
@@ -274,9 +301,92 @@ out:
 	return ret;
 }
 
+/*
+ * the page a boot that never loaded another policy hands out: the generation
+ * counters stay where that boot left them, and enforcing is on. a detector reads
+ * these two numbers first, so serving the real page would answer its question
+ */
+/*
+ * the class number and the permission bits come from the kernel's own class map at
+ * run time: they follow the policy the kernel carries and are not numbers this
+ * library could name at build time
+ */
+struct slh_class_map {
+	const char *name;
+	const char *const *perms;
+};
+
+static u16 slh_class_security;
+static unsigned long (*slh_fn_current_sid)(void);
+
+static void slh_lookup_perms(void)
+{
+	unsigned long addr = slh_cfg.resolve("secclass_map");
+	u16 cls;
+
+	if (!addr)
+		return;
+	for (cls = 1; cls < 256; cls++) {
+		struct slh_class_map map;
+		u32 bit;
+
+		if (copy_from_kernel_nofault(&map,
+					     (void *)(addr + (cls - 1) * sizeof(map)),
+					     sizeof(map)))
+			break;
+		if (!map.name || !map.perms)
+			break;
+		if (strcmp(map.name, "security"))
+			continue;
+		slh_class_security = cls;
+		for (bit = 0; bit < 32; bit++) {
+			const char *p = NULL;
+
+			if (copy_from_kernel_nofault(&p, &map.perms[bit],
+						     sizeof(p)) || !p)
+				break;
+			if (!strcmp(p, "check_context"))
+				slh_perm_check_context = 1u << bit;
+			else if (!strcmp(p, "compute_av"))
+				slh_perm_compute_av = 1u << bit;
+		}
+		break;
+	}
+}
+
+/*
+ * the permission the kernel's own handler would have asked for, answered through
+ * this library's policy query instead of avc_has_perm, whose argument list differs
+ * across kernels
+ */
+static bool slh_perm_ok(u32 tsid, u32 bit)
+{
+	void *pol;
+	u32 ssid;
+
+	if (!slh_class_security || !bit || !slh_fn_current_sid)
+		return false;
+	ssid = ((u32 (*)(void))slh_fn_current_sid)();
+	pol = sepolicy_live_policy();
+	if (!pol)
+		return false;
+	return sepolicy_policy_has_perm(pol, ssid, tsid, slh_class_security,
+					bit);
+}
+
+static void slh_fill_status_stock(void *page)
+{
+	u32 *st = page;
+
+	st[1] = slh_cfg.stock_sequence;
+	st[3] = slh_cfg.stock_policyload;
+	if (!st[2])
+		st[2] = 1;
+}
+
 static int __nocfi slh_open_status(struct inode *inode, struct file *filp)
 {
-	if (!slh_hidden() || !slh_cfg.fill_status) {
+	if (!slh_hidden()) {
 		if (slh_orig_status_open)
 			return slh_orig_status_open(inode, filp);
 		return -EINVAL;
@@ -286,8 +396,11 @@ static int __nocfi slh_open_status(struct inode *inode, struct file *filp)
 		slh_status_page = alloc_page(GFP_KERNEL | __GFP_ZERO);
 		if (!slh_status_page)
 			return -ENOMEM;
-		slh_cfg.fill_status(page_address(slh_status_page),
-				    slh_cfg.priv);
+		if (slh_cfg.fill_status)
+			slh_cfg.fill_status(page_address(slh_status_page),
+					    slh_cfg.priv);
+		else
+			slh_fill_status_stock(page_address(slh_status_page));
 	}
 
 	filp->private_data = slh_status_page;
@@ -521,35 +634,58 @@ void selinuxhide_exit(void)
 
 int selinuxhide_start(void)
 {
+	int ret;
 	if (!slh_ready)
 		return -ENODATA;
 	if (slh_on)
 		return 0;
+	slh_lookup_perms();
+	slh_fn_current_sid = (void *)slh_cfg.resolve("current_sid");
 
+	/*
+	 * every slot is checked: a platform that swallows the write leaves the pointer
+	 * where it was, and hiding cannot be reported as in place when it is not
+	 */
+	ret = 0;
 	if (slh_answer_ready()) {
 		slh_slot_context = slh_find_slot(slh_write_op_addr,
 						 slh_addr_write_context);
-		if (slh_slot_context)
-			hk_ptr_hook(slh_slot_context, (void *)slh_write_context,
-				    (void **)&slh_orig_write_context);
+		if (slh_slot_context) {
+			ret = hk_ptr_hook(slh_slot_context,
+					  (void *)slh_write_context,
+					  (void **)&slh_orig_write_context);
+			if (ret)
+				goto out;
+		}
 		slh_slot_access = slh_find_slot(slh_write_op_addr,
 						slh_addr_write_access);
-		if (slh_slot_access)
-			hk_ptr_hook(slh_slot_access, (void *)slh_write_access,
-				    (void **)&slh_orig_write_access);
+		if (slh_slot_access) {
+			ret = hk_ptr_hook(slh_slot_access,
+					  (void *)slh_write_access,
+					  (void **)&slh_orig_write_access);
+			if (ret)
+				goto out;
+		}
 	}
 
 	slh_slot_status = slh_find_slot(slh_status_ops_addr,
 					slh_addr_open_status);
-	if (slh_slot_status)
-		hk_ptr_hook(slh_slot_status, (void *)slh_open_status,
-			    (void **)&slh_orig_status_open);
+	if (slh_slot_status) {
+		ret = hk_ptr_hook(slh_slot_status, (void *)slh_open_status,
+				  (void **)&slh_orig_status_open);
+		if (ret)
+			goto out;
+	}
 
-	if (hk_lsm_hook(&slh_hook))
-		pr_info("[selinuxhide] setprocattr hook failed\n");
+	ret = hk_lsm_hook(&slh_hook);
+	if (ret)
+		goto out;
 
 	slh_on = true;
-	return 0;
+out:
+	if (ret)
+		selinuxhide_stop();
+	return ret;
 }
 
 void selinuxhide_stop(void)

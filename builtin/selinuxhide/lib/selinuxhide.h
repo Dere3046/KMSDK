@@ -28,6 +28,13 @@ struct slh_cfg {
 	unsigned long (*resolve)(const char *name);
 	bool (*should_hide)(uid_t uid, void *priv);
 	void (*fill_status)(void *page, void *priv);
+	/*
+	 * what a stock boot of this kernel shows on the status page. the consumer
+	 * names them because they follow the kernel's behaviour and not a version
+	 * number the library would have to guess at
+	 */
+	u32 stock_sequence;
+	u32 stock_policyload;
 	void *alt_policy;
 	void *priv;
 };
