@@ -359,6 +359,17 @@ static void slh_lookup_perms(void)
  * this library's policy query instead of avc_has_perm, whose argument list differs
  * across kernels
  */
+/*
+ * the resolved function is called through a pointer, so on a kernel with the older
+ * CFI the call has to sit inside a __nocfi wrapper
+ */
+static __nocfi noinline u32 call_current_sid(void)
+{
+	if (!slh_fn_current_sid)
+		return 0;
+	return ((u32 (*)(void))slh_fn_current_sid)();
+}
+
 static bool slh_perm_ok(u32 tsid, u32 bit)
 {
 	void *pol;
@@ -366,7 +377,7 @@ static bool slh_perm_ok(u32 tsid, u32 bit)
 
 	if (!slh_class_security || !bit || !slh_fn_current_sid)
 		return false;
-	ssid = ((u32 (*)(void))slh_fn_current_sid)();
+	ssid = call_current_sid();
 	pol = sepolicy_live_policy();
 	if (!pol)
 		return false;
