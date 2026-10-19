@@ -114,6 +114,16 @@ int vc_install(const char *sym, const char *repl_sym, struct vc_result *out)
 	e->route = route;
 	ret = hk_redir_install(&e->redir, sym, repl_sym, route == VC_ROUTE_TEXT ?
 			       HK_REDIR_TEXT : HK_REDIR_KPROBE);
+	/*
+	 * a text route that refused is not the end: an entry too short for the window,
+	 * or a write the kernel would not take, still leaves the breakpoint route,
+	 * which changes nothing but the parked pc
+	 */
+	if (ret && route == VC_ROUTE_TEXT) {
+		route = VC_ROUTE_KPROBE;
+		e->route = route;
+		ret = hk_redir_install(&e->redir, sym, repl_sym, HK_REDIR_KPROBE);
+	}
 	if (ret) {
 		out->ret = ret;
 		mutex_unlock(&g_vc_lock);
