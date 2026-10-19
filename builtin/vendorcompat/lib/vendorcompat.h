@@ -9,30 +9,49 @@
 #include <linux/types.h>
 
 /*
- * some kernels protect the paths a module usually takes, and the work that needs
- * them then lands nowhere while every call still returns success. this library is
- * one place for what such a kernel needed instead, so a consumer does not carry a
- * version of it per project
+ * choosing the route, once, so a consumer does not carry a table of what each
+ * kernel allows. the consumer names what it wants replaced, this asks the page
+ * table and the breakpoint gates which route stands a chance on this kernel, takes
+ * it, and reports which one it took
  *
- * everything here is opt in and reports what it did. nothing is claimed to be
- * verified: the protections are not ours and the kernels that have them are not
- * the ones this was built against, so a call that cannot be made says so instead of
- * pretending
+ * a kernel that does not let a read only table be written shows up as the slot
+ * route not being offered, and the function itself still being one: the route that
+ * needs a write to data is the one that fails there, and the route that writes the
+ * code is the one that works
  */
+
+enum vc_route {
+	VC_ROUTE_NONE = 0,	/* nothing stands a chance, nothing was changed */
+	VC_ROUTE_TEXT,		/* the entry itself was written */
+	VC_ROUTE_KPROBE,	/* the entry keeps its bytes, a breakpoint carries the call */
+	VC_ROUTE_SLOT,		/* a pointer in a table was replaced */
+};
+
+struct vc_result {
+	enum vc_route route;
+	bool writable;		/* the page was writable when it was probed */
+	bool block_map;		/* no pte to change under it */
+	int ret;		/* what the route answered, 0 when it was taken */
+};
 
 /*
- * name the vendor entry point that decides whether a task is allowed to do
- * something, and this replaces it with one that always allows. the entry is found
- * in the function table it is published in, which is a pointer and not code, so no
- * text is written. returns 0 when the slot was replaced, -ENODATA when the symbol
- * or its slot cannot be found, which leaves the kernel untouched
+ * replace the function named sym with repl_sym, on whichever route this kernel
+ * allows. the routes are tried in the order that changes least first: the text
+ * route only where the page is writable, then the breakpoint route. nothing is
+ * written when both refuse, and the result says what was seen
  */
-int vc_allow_entry(const char *name);
+int vc_install(const char *sym, const char *repl_sym, struct vc_result *out);
 
-/* put the replaced entries back. safe to call when nothing was replaced */
+/* the same by address, which only the breakpoint route takes */
+int vc_install_at(unsigned long addr, unsigned long repl, struct vc_result *out);
+
+/* take back everything this library installed. safe when nothing was */
 void vc_exit(void);
 
-/* how many entries this library replaced */
+/* how many replacements are in place */
 unsigned int vc_active(void);
+
+/* the name of a route, for a report */
+const char *vc_route_name(enum vc_route route);
 
 #endif
