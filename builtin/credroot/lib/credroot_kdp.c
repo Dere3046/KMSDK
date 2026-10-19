@@ -48,6 +48,28 @@ typedef long (*inc_rlimit_ucounts_t)(struct ucounts *ucounts, unsigned int type,
 typedef bool (*dec_rlimit_ucounts_t)(struct ucounts *ucounts, unsigned int type, long value);
 #endif
 
+/*
+ * the entry points the commit lands in are resolved like the rest of this file:
+ * a build that exports nothing to modules must still be able to make the call, and
+ * a call through a resolved address is what the kernel sees as its own
+ */
+typedef int (*commit_creds_fn)(struct cred *cred);
+typedef void (*abort_creds_fn)(const struct cred *cred);
+typedef void (*put_cred_fn)(const struct cred *cred);
+
+static commit_creds_fn cr_commit_creds;
+static abort_creds_fn cr_abort_creds;
+static put_cred_fn cr_put_cred;
+
+static int cr_resolve_tail(void)
+{
+	cr_commit_creds = (commit_creds_fn)hk_resolve("commit_creds");
+	cr_abort_creds = (abort_creds_fn)hk_resolve("abort_creds");
+	cr_put_cred = (put_cred_fn)hk_resolve("__put_cred");
+	return cr_commit_creds && cr_abort_creds ? 0 : -ENODATA;
+}
+
+
 static prepare_ro_creds_t prepare_ro_creds_fn;
 static kdp_assign_pgd_t kdp_assign_pgd_fn;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
@@ -116,7 +138,8 @@ static void __nocfi kdp_commit_worker(struct work_struct *work)
 #endif
     }
 
-    abort_creds(cw->rw_cred);
+    if (cr_abort_creds)
+        cr_abort_creds(cw->rw_cred);
     cw->rw_cred = NULL;
     credroot_put_cred(old_cred);
     credroot_put_cred(old_cred);
@@ -128,6 +151,7 @@ out:
     complete(&cw->completion);
 }
 
+
 void __nocfi credroot_put_cred(const struct cred *cred)
 {
     if (static_branch_unlikely(&credroot_kdp_key)) {
@@ -137,9 +161,11 @@ void __nocfi credroot_put_cred(const struct cred *cred)
 #else
         if (m && kdp_usecount_dec_and_test_fn(m))
 #endif
-            __put_cred(m);
+            if (cr_put_cred)
+                cr_put_cred(m);
     } else {
-        put_cred(cred);
+        if (cr_put_cred)
+            cr_put_cred(cred);
     }
 }
 
@@ -152,7 +178,7 @@ int credroot_commit_creds(struct cred *cred)
         return -EINVAL;
 
     if (!static_branch_unlikely(&credroot_kdp_key))
-        return commit_creds(cred);
+        return cr_commit_creds ? cr_commit_creds(cred) : -ENODATA;
 
     INIT_WORK(&cw.work, kdp_commit_worker);
     init_completion(&cw.completion);
@@ -180,7 +206,7 @@ int credroot_kdp_init(void)
 	credroot_kdp_resolve();
 	if (!prepare_ro_creds_fn || !kdp_assign_pgd_fn)
 		return -ENODATA;
-	return 0;
+	return cr_resolve_tail();
 }
 
 static void credroot_kdp_resolve(void)
