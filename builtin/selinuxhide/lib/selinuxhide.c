@@ -18,6 +18,7 @@
 
 #include "core.h"
 #include "type_info.h"
+#include "hk_inline.h"
 #include "hk_lsm.h"
 #include "hk_ptr.h"
 #include "sepolicy.h"
@@ -140,6 +141,49 @@ static bool slh_answer_ready(void)
 static bool slh_perm_ok(u32 tsid, u32 bit);
 static u32 slh_perm_check_context;
 static u32 slh_perm_compute_av;
+
+/*
+ * a read only table cannot be written on some kernels, so the counter hook goes
+ * into the function itself instead of the pointer that names it. the two routes
+ * answer the same thing, the inline one survives where the pointer route does not
+ */
+static void *slh_fn_sidtab_hash_stats;
+static long slh_off_policy_sidtab = -1;
+
+static struct hk_inline slh_stats_hook;
+static bool slh_stats_hooked;
+
+/*
+ * the statistics of the internal table say more than they should: a context that
+ * was hidden is still in the table, so the numbers move in a way a clean kernel's
+ * would not. a reader that is supposed to be hidden gets them from the copy of the
+ * policy this module keeps, which is the table as it stood before anything was
+ * hidden
+ */
+ssize_t __nocfi slh_read_sidtab_hash_stats(struct file *file, char __user *buf,
+					  size_t count, loff_t *ppos)
+{
+	ssize_t (*orig)(struct file *, char __user *, size_t, loff_t *) =
+		(ssize_t (*)(struct file *, char __user *, size_t, loff_t *))
+			slh_stats_hook.orig;
+	int (*stats)(void *sidtab, char *page);
+	char *page;
+	long rc;
+
+	if (!slh_hidden() || !slh_alt || !slh_fn_sidtab_hash_stats ||
+	    slh_off_policy_sidtab < 0)
+		return orig ? orig(file, buf, count, ppos) : -EINVAL;
+
+	stats = (int (*)(void *, char *))slh_fn_sidtab_hash_stats;
+	page = (char *)__get_free_page(GFP_KERNEL);
+	if (!page)
+		return -ENOMEM;
+	rc = stats((char *)slh_alt + slh_off_policy_sidtab, page);
+	if (rc >= 0)
+		rc = simple_read_from_buffer(buf, count, ppos, page, rc);
+	free_page((unsigned long)page);
+	return rc;
+}
 
 static ssize_t __nocfi slh_write_context(struct file *file, char *buf,
 					 size_t size)
@@ -505,6 +549,7 @@ static int slh_layout_load(void)
 
 	slh_off_policy = -1;
 	slh_off_policy_mutex = -1;
+	slh_off_policy_sidtab = -1;
 
 	if (ti_type_by_name(slh_btf, "selinux_state",
 			    BIT(SLH_BTF_KIND_STRUCT), &id))
@@ -515,6 +560,16 @@ static int slh_layout_load(void)
 	if (ti_member_off(slh_btf, id, "policy_mutex", &bit_off, &bit_sz))
 		return -ENODATA;
 	slh_off_policy_mutex = bit_off / 8;
+
+	/*
+	 * the counters live in the copy's own table, so the member that names it is
+	 * wanted as well. a layout without it only costs the counter surface, never
+	 * the hiding itself
+	 */
+	if (!ti_type_by_name(slh_btf, "selinux_policy",
+			     BIT(SLH_BTF_KIND_STRUCT), &id) &&
+	    !ti_member_off(slh_btf, id, "sidtab", &bit_off, &bit_sz))
+		slh_off_policy_sidtab = bit_off / 8;
 	return 0;
 }
 
@@ -571,6 +626,7 @@ int __nocfi selinuxhide_init(const struct slh_cfg *cfg)
 			return ret;
 		slh_ti_owner = true;
 	}
+	slh_fn_sidtab_hash_stats = (void *)cfg->resolve("sidtab_hash_stats");
 	slh_btf = ti_base();
 	if (!slh_btf)
 		return -ENODATA;
@@ -692,6 +748,22 @@ int selinuxhide_start(void)
 	if (ret)
 		goto out;
 
+	/*
+	 * the counter hook is a second surface and not the reason the feature exists:
+	 * a kernel that will not take it keeps hiding, and only the counters stay as
+	 * they were
+	 */
+	if (slh_fn_sidtab_hash_stats && slh_off_policy_sidtab >= 0) {
+		ret = hk_inline_hook(&slh_stats_hook, "sel_read_sidtab_hash_stats",
+				     "slh_read_sidtab_hash_stats");
+		if (ret) {
+			pr_warn("[selinuxhide] counter hook refused %d\n", ret);
+			ret = 0;
+		} else {
+			slh_stats_hooked = true;
+		}
+	}
+
 	slh_on = true;
 out:
 	if (ret)
@@ -704,6 +776,10 @@ void selinuxhide_stop(void)
 	if (!slh_on)
 		return;
 
+	if (slh_stats_hooked) {
+		hk_inline_unhook(&slh_stats_hook);
+		slh_stats_hooked = false;
+	}
 	if (slh_slot_status)
 		hk_ptr_unhook(slh_slot_status);
 	if (slh_slot_access)
