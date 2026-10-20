@@ -42,6 +42,14 @@ struct slh_cfg {
 int selinuxhide_init(const struct slh_cfg *cfg);
 void selinuxhide_exit(void);
 int selinuxhide_start(void);
+
+/*
+ * the counter surface answers from the policy copy, and it is named at install time
+ * so the engine can find it: that is why it carries a prototype here and not a
+ * static definition in the source
+ */
+ssize_t slh_read_sidtab_hash_stats(struct file *file, char __user *buf,
+				   size_t count, loff_t *ppos);
 void selinuxhide_stop(void);
 
 #endif

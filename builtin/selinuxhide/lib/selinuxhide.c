@@ -411,7 +411,7 @@ static __nocfi noinline u32 call_current_sid(void)
 {
 	if (!slh_fn_current_sid)
 		return 0;
-	return ((u32 (*)(void))slh_fn_current_sid)();
+	return (u32)((unsigned long (*)(void))slh_fn_current_sid)();
 }
 
 static bool slh_perm_ok(u32 tsid, u32 bit)

@@ -19,6 +19,9 @@
 /* resolve what the commit needs. 0 when everything was found */
 int credroot_kdp_init(void);
 
+/* nothing to take back yet, kept so a consumer has one place to call */
+void credroot_kdp_exit(void);
+
 /* the replacement entry points, for a consumer that wants them */
 int credroot_commit_creds(struct cred *cred);
 void credroot_put_cred(const struct cred *cred);
