@@ -7,6 +7,7 @@
 #include <linux/kernel.h>
 #include <linux/mutex.h>
 #include <linux/printk.h>
+#include <linux/string.h>
 #include <linux/types.h>
 
 #include "hk.h"
@@ -196,4 +197,22 @@ void vc_exit(void)
 unsigned int vc_active(void)
 {
 	return g_vc_active;
+}
+
+struct hk_redir *vc_handle(const char *sym)
+{
+	struct hk_redir *redir = NULL;
+	unsigned int i;
+
+	if (!sym)
+		return NULL;
+	mutex_lock(&g_vc_lock);
+	for (i = 0; i < g_vc_active; i++) {
+		if (g_vc[i].used && !strcmp(g_vc[i].sym, sym)) {
+			redir = &g_vc[i].redir;
+			break;
+		}
+	}
+	mutex_unlock(&g_vc_lock);
+	return redir;
 }

@@ -8,6 +8,8 @@
 
 #include <linux/types.h>
 
+struct hk_redir;
+
 /*
  * choosing the route, once, so a consumer does not carry a table of what each
  * kernel allows. the consumer names what it wants replaced, this asks the page
@@ -53,5 +55,12 @@ unsigned int vc_active(void);
 
 /* the name of a route, for a report */
 const char *vc_route_name(enum vc_route route);
+
+/*
+ * the handle of a replacement that is live, so the replacement can call what it
+ * replaced and clear the guard the breakpoint route keeps. null when sym was not
+ * replaced here
+ */
+struct hk_redir *vc_handle(const char *sym);
 
 #endif
