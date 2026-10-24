@@ -97,8 +97,7 @@ audit)
 		| sed 's/#include "//;s/"//' | sort -u)
 	missing=0
 	for h in $refs; do
-		lib=$(find_owner "$h")
-		[ -z "$lib" ] && continue
+		lib=$(find_owner "$h") || continue
 		if ! grep -q "^$lib " deps.lst; then
 			echo "referenced but missing: $lib (sdk add $lib)"
 			missing=1
