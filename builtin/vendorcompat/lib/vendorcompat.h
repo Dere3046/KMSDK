@@ -8,7 +8,9 @@
 
 #include <linux/types.h>
 
-struct hk_redir;
+#include "hk_inline.h"
+#include "hk_kprobe.h"
+#include "hk_redir.h"
 
 /*
  * choosing the route, once, so a consumer does not carry a table of what each
@@ -36,6 +38,14 @@ struct vc_result {
 	int ret;		/* what the route answered, 0 when it was taken */
 };
 
+struct vc_opts {
+	hk_probe_adjust_fn adjust;
+	void *adjust_arg;
+	enum hk_redir_guard guard;
+	bool pin;
+	enum hk_inline_ret_mode ret_mode;
+};
+
 /*
  * replace the function named sym with repl_sym, on whichever route this kernel
  * allows. the routes are tried in the order that changes least first: the text
@@ -43,9 +53,13 @@ struct vc_result {
  * written when both refuse, and the result says what was seen
  */
 int vc_install(const char *sym, const char *repl_sym, struct vc_result *out);
+int vc_install_ex(const char *sym, const char *repl_sym,
+		  const struct vc_opts *opts, struct vc_result *out);
 
 /* the same by address, which only the breakpoint route takes */
 int vc_install_at(unsigned long addr, unsigned long repl, struct vc_result *out);
+int vc_install_at_ex(unsigned long addr, unsigned long repl,
+		     const struct vc_opts *opts, struct vc_result *out);
 
 /* take back everything this library installed. safe when nothing was */
 void vc_exit(void);

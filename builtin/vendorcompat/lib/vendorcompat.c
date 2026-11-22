@@ -80,7 +80,23 @@ static enum vc_route vc_pick(const char *sym, unsigned long addr,
 	return VC_ROUTE_NONE;
 }
 
-int vc_install(const char *sym, const char *repl_sym, struct vc_result *out)
+static void vc_apply_opts(struct hk_redir *redir, enum vc_route route,
+			  const struct vc_opts *opts)
+{
+	if (!opts)
+		return;
+	if (route == VC_ROUTE_TEXT) {
+		redir->ret_mode = opts->ret_mode;
+		return;
+	}
+	redir->adjust = opts->adjust;
+	redir->adjust_arg = opts->adjust_arg;
+	redir->guard = opts->guard;
+	redir->pin = opts->pin;
+}
+
+int vc_install_ex(const char *sym, const char *repl_sym,
+		  const struct vc_opts *opts, struct vc_result *out)
 {
 	struct vc_entry *e;
 	unsigned long addr;
@@ -113,6 +129,7 @@ int vc_install(const char *sym, const char *repl_sym, struct vc_result *out)
 	memset(e, 0, sizeof(*e));
 	e->sym = sym;
 	e->route = route;
+	vc_apply_opts(&e->redir, route, opts);
 	ret = hk_redir_install(&e->redir, sym, repl_sym, route == VC_ROUTE_TEXT ?
 			       HK_REDIR_TEXT : HK_REDIR_KPROBE);
 	/*
@@ -123,6 +140,8 @@ int vc_install(const char *sym, const char *repl_sym, struct vc_result *out)
 	if (ret && route == VC_ROUTE_TEXT) {
 		route = VC_ROUTE_KPROBE;
 		e->route = route;
+		memset(&e->redir, 0, sizeof(e->redir));
+		vc_apply_opts(&e->redir, route, opts);
 		ret = hk_redir_install(&e->redir, sym, repl_sym, HK_REDIR_KPROBE);
 	}
 	if (ret) {
@@ -142,7 +161,13 @@ int vc_install(const char *sym, const char *repl_sym, struct vc_result *out)
 	return 0;
 }
 
-int vc_install_at(unsigned long addr, unsigned long repl, struct vc_result *out)
+int vc_install(const char *sym, const char *repl_sym, struct vc_result *out)
+{
+	return vc_install_ex(sym, repl_sym, NULL, out);
+}
+
+int vc_install_at_ex(unsigned long addr, unsigned long repl,
+		     const struct vc_opts *opts, struct vc_result *out)
 {
 	struct vc_entry *e;
 	int ret;
@@ -165,6 +190,7 @@ int vc_install_at(unsigned long addr, unsigned long repl, struct vc_result *out)
 	e = &g_vc[g_vc_active];
 	memset(e, 0, sizeof(*e));
 	e->route = VC_ROUTE_KPROBE;
+	vc_apply_opts(&e->redir, VC_ROUTE_KPROBE, opts);
 	ret = hk_redir_install_at(&e->redir, addr, repl, HK_REDIR_KPROBE);
 	if (ret) {
 		out->ret = ret;
@@ -176,6 +202,11 @@ int vc_install_at(unsigned long addr, unsigned long repl, struct vc_result *out)
 	mutex_unlock(&g_vc_lock);
 	out->route = VC_ROUTE_KPROBE;
 	return 0;
+}
+
+int vc_install_at(unsigned long addr, unsigned long repl, struct vc_result *out)
+{
+	return vc_install_at_ex(addr, repl, NULL, out);
 }
 
 void vc_exit(void)
