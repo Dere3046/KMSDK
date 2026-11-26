@@ -5,8 +5,10 @@
 
 #include <linux/errno.h>
 #include <linux/kernel.h>
+#include <linux/list.h>
 #include <linux/mutex.h>
 #include <linux/printk.h>
+#include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/types.h>
 
@@ -16,8 +18,6 @@
 #include "hk_patch.h"
 #include "hk_redir.h"
 #include "vendorcompat.h"
-
-#define VC_MAX 8
 
 static const char *const g_route_names[] = {
 	"none",
@@ -31,13 +31,13 @@ static const char *const g_route_names[] = {
  * what the probe saw so a consumer can log why a route was or was not offered
  */
 struct vc_entry {
+	struct list_head list;
 	enum vc_route route;
 	const char *sym;
 	struct hk_redir redir;
-	bool used;
 };
 
-static struct vc_entry g_vc[VC_MAX];
+static LIST_HEAD(g_vc_list);
 static unsigned int g_vc_active;
 static DEFINE_MUTEX(g_vc_lock);
 
@@ -119,17 +119,16 @@ int vc_install_ex(const char *sym, const char *repl_sym,
 		return -EOPNOTSUPP;
 	}
 
-	mutex_lock(&g_vc_lock);
-	if (g_vc_active >= VC_MAX) {
-		mutex_unlock(&g_vc_lock);
-		out->ret = -ENOSPC;
-		return -ENOSPC;
+	e = kzalloc(sizeof(*e), GFP_KERNEL);
+	if (!e) {
+		out->ret = -ENOMEM;
+		return -ENOMEM;
 	}
-	e = &g_vc[g_vc_active];
-	memset(e, 0, sizeof(*e));
 	e->sym = sym;
 	e->route = route;
 	vc_apply_opts(&e->redir, route, opts);
+
+	mutex_lock(&g_vc_lock);
 	ret = hk_redir_install(&e->redir, sym, repl_sym, route == VC_ROUTE_TEXT ?
 			       HK_REDIR_TEXT : HK_REDIR_KPROBE);
 	/*
@@ -147,12 +146,13 @@ int vc_install_ex(const char *sym, const char *repl_sym,
 	if (ret) {
 		out->ret = ret;
 		mutex_unlock(&g_vc_lock);
+		kfree(e);
 		pr_warn("[vendorcompat] %s on the %s route refused %d\n", sym,
 			vc_route_name(route), ret);
 		return ret;
 	}
-	e->used = true;
-	g_vc_active++;
+	list_add_tail(&e->list, &g_vc_list);
+	WRITE_ONCE(g_vc_active, g_vc_active + 1);
 	mutex_unlock(&g_vc_lock);
 	out->route = route;
 	out->ret = 0;
@@ -181,24 +181,24 @@ int vc_install_at_ex(unsigned long addr, unsigned long repl,
 		return -EOPNOTSUPP;
 	}
 
-	mutex_lock(&g_vc_lock);
-	if (g_vc_active >= VC_MAX) {
-		mutex_unlock(&g_vc_lock);
-		out->ret = -ENOSPC;
-		return -ENOSPC;
+	e = kzalloc(sizeof(*e), GFP_KERNEL);
+	if (!e) {
+		out->ret = -ENOMEM;
+		return -ENOMEM;
 	}
-	e = &g_vc[g_vc_active];
-	memset(e, 0, sizeof(*e));
 	e->route = VC_ROUTE_KPROBE;
 	vc_apply_opts(&e->redir, VC_ROUTE_KPROBE, opts);
+
+	mutex_lock(&g_vc_lock);
 	ret = hk_redir_install_at(&e->redir, addr, repl, HK_REDIR_KPROBE);
 	if (ret) {
 		out->ret = ret;
 		mutex_unlock(&g_vc_lock);
+		kfree(e);
 		return ret;
 	}
-	e->used = true;
-	g_vc_active++;
+	list_add_tail(&e->list, &g_vc_list);
+	WRITE_ONCE(g_vc_active, g_vc_active + 1);
 	mutex_unlock(&g_vc_lock);
 	out->route = VC_ROUTE_KPROBE;
 	return 0;
@@ -211,36 +211,40 @@ int vc_install_at(unsigned long addr, unsigned long repl, struct vc_result *out)
 
 void vc_exit(void)
 {
-	unsigned int i;
+	struct vc_entry *e, *tmp;
 
 	mutex_lock(&g_vc_lock);
-	for (i = 0; i < g_vc_active; i++) {
-		if (!g_vc[i].used)
+	list_for_each_entry_safe_reverse(e, tmp, &g_vc_list, list) {
+		int ret = hk_redir_remove(&e->redir);
+
+		if (ret) {
+			pr_warn("[vendorcompat] remove %s failed %d, keeping entry live\n",
+				e->sym ? e->sym : "<addr>", ret);
 			continue;
-		hk_redir_remove(&g_vc[i].redir);
-		g_vc[i].used = false;
+		}
+		list_del(&e->list);
+		WRITE_ONCE(g_vc_active, g_vc_active - 1);
+		kfree(e);
 	}
-	memset(g_vc, 0, sizeof(g_vc));
-	g_vc_active = 0;
 	mutex_unlock(&g_vc_lock);
 }
 
 unsigned int vc_active(void)
 {
-	return g_vc_active;
+	return READ_ONCE(g_vc_active);
 }
 
 struct hk_redir *vc_handle(const char *sym)
 {
 	struct hk_redir *redir = NULL;
-	unsigned int i;
+	struct vc_entry *e;
 
 	if (!sym)
 		return NULL;
 	mutex_lock(&g_vc_lock);
-	for (i = 0; i < g_vc_active; i++) {
-		if (g_vc[i].used && !strcmp(g_vc[i].sym, sym)) {
-			redir = &g_vc[i].redir;
+	list_for_each_entry(e, &g_vc_list, list) {
+		if (e->sym && !strcmp(e->sym, sym)) {
+			redir = &e->redir;
 			break;
 		}
 	}
